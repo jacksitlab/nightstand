@@ -1,8 +1,8 @@
 {
     "keys": {
         "0": {
-            "color": "#00CC00",
-            "pressed": "#00FF00"
+            "color": "#00CCFF",
+            "pressed": "#00F000"
         }
     },
     "speakers": [
