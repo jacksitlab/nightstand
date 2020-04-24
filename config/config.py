@@ -1,4 +1,5 @@
 import json
+from .key import KeyConfig
 
 
 class NightStandConfig:
@@ -12,3 +13,10 @@ class NightStandConfig:
 
     def registerFilechangedLister(self, listener):
         pass
+
+    def getKeyConfig(self, index):
+        keys = self.data["keys"]
+        if str(index) in keys:
+            return KeyConfig(keys[str(index)])
+        else:
+            return KeyConfig.Default()

@@ -3,7 +3,7 @@ import time
 from board import SCL, SDA
 import busio
 from adafruit_neotrellis.neotrellis import NeoTrellis
-from config import NightStandConfig
+from config.config import NightStandConfig
 
 # some color definitions
 OFF = (0, 0, 0)
@@ -29,6 +29,13 @@ class Nightstand:
         i2c_bus = busio.I2C(SCL, SDA)
         # create the trellis
         self.trellis = NeoTrellis(i2c_bus)
+        for i in range(16):
+            # activate rising edge events on all keys
+            self.trellis.activate_key(i, NeoTrellis.EDGE_RISING)
+            # activate falling edge events on all keys
+            self.trellis.activate_key(i, NeoTrellis.EDGE_FALLING)
+            # set all keys to trigger the blink callback
+            self.trellis.callbacks[i] = self.onKeyPressed
 
     def reset(self):
         for i in range(16):
@@ -43,9 +50,22 @@ class Nightstand:
         for i in range(16):
             self.trellis.pixels[i] = OFF
             time.sleep(0.1)
+        for i in range(16):
+            self.trellis.pixels[i] = self.config.getKeyConfig(i).color
+            time.sleep(0.1)
 
     def onConfigChanged(self):
         print("config changed")
+
+    def onKeyPressed(self, event):
+        # turn the LED on when a rising edge is detected
+        if event.edge == NeoTrellis.EDGE_RISING:
+            self.trellis.pixels[event.number] = self.config.getKeyConfig(
+                event.number).keyPressedColor
+        # turn the LED off when a rising edge is detected
+        elif event.edge == NeoTrellis.EDGE_FALLING:
+            self.trellis.pixels[event.number] = self.config.getKeyConfig(
+                event.number).color
 
     def startServer(self):
         print('Hello from the Nightstand Service')
