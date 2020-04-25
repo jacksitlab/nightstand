@@ -5,6 +5,7 @@ import busio
 from adafruit_neotrellis.neotrellis import NeoTrellis
 from config.config import NightStandConfig
 from repeatedTimer import RepeatedTimer
+from config.key import KeyConfig
 import vlc
 
 # some color definitions
@@ -30,13 +31,13 @@ RESET_STATE_NONE = 0
 RESET_STATE_KEYPRESSED = 1
 KEYSTATE_NONE = 0
 KEYSTATE_PRESSED = 1
+# increase/decrease for VOL+/VOL- Button
+VOL_INCDEC = 5
 
 
-class Nightstand:
+class NightstandStates:
 
     def __init__(self):
-        self.config = NightStandConfig(CONFIGFILE)
-        self.audioPlayer = None
         self.menuState = MENUSTATE_INIT
         self.resetState = RESET_STATE_NONE
         self.resetCounter = RESET_COUNTER_START
@@ -44,11 +45,40 @@ class Nightstand:
                           KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE,
                           KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE,
                           KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE]
+        self.sleepCounter = 0
+        self.sleepEnabled = False
+
+    def enterMenu(self, state):
+        if state == self.menuState:
+            return
+        self.menuState = state
+
+    def isSleepCondition(self):
+        if self.menuState == MENUSTATE_SLEEPING:
+            return True
+        self.sleepCounter -= 1
+        if self.sleepEnabled and (self.menuState == MENUSTATE_IDLE or self.menuState == MENUSTATE_PLAYING) and self.sleepCounter < 0:
+            return True
+        return False
+
+    def isResetKeyCondition(self):
+        if self.keyStates[12] == KEYSTATE_PRESSED and self.keyStates[15] == KEYSTATE_PRESSED:
+            return True
+        return False
+
+
+class Nightstand:
+
+    def __init__(self):
+        self.config = NightStandConfig(CONFIGFILE)
+        self.audioPlayer = None
+        self.states = NightstandStates()
         self.timer = RepeatedTimer(TIMER_INTERVAL, self.onTimerTick)
 
     def init(self):
-        self.menuState = MENUSTATE_INIT
+        self.states.enterMenu(MENUSTATE_INIT)
         self.config.load()
+        self.states.sleepEnabled = self.config.isSleepEnabled()
         self.config.registerFilechangedListener(self.onConfigChanged)
         # create the i2c object for the trellis
         i2c_bus = busio.I2C(SCL, SDA)
@@ -61,12 +91,13 @@ class Nightstand:
             self.trellis.activate_key(i, NeoTrellis.EDGE_FALLING)
             # set all keys to trigger the blink callback
             self.trellis.callbacks[i] = self.onKeyPressed
-        self.menuState = MENUSTATE_IDLE
+        self.states.enterMenu(MENUSTATE_IDLE)
 
-    def reset(self, startupSequence=True):
-        self.menuState = MENUSTATE_INIT
-        self.resetCounter = RESET_COUNTER_START
-        self.playAudio(None)
+    def reset(self, startupSequence=True, stopAudio=False):
+        self.states.enterMenu(MENUSTATE_INIT)
+        self.states.resetCounter = RESET_COUNTER_START
+        if stopAudio:
+            self.playAudio(None)
         if startupSequence:
             for i in range(16):
                 self.trellis.pixels[i] = RED
@@ -82,20 +113,15 @@ class Nightstand:
                 time.sleep(INIT_DELAY)
         for i in range(16):
             self.trellis.pixels[i] = self.config.getKeyConfig(i).color
-        self.menuState = MENUSTATE_IDLE
-
-    def isResetCondition(self):
-        if self.keyStates[12] == KEYSTATE_PRESSED and self.keyStates[15] == KEYSTATE_PRESSED:
-            return True
-        return False
+        self.states.enterMenu(MENUSTATE_IDLE)
 
     def onTimerTick(self):
-        if self.isResetCondition():
-            self.resetCounter -= 1
-            if self.resetCounter < 0:
+        if self.states.isResetKeyCondition():
+            self.states.resetCounter -= 1
+            if self.states.resetCounter < 0:
                 self.reset()
         else:
-            self.resetCounter = RESET_COUNTER_START
+            self.states.resetCounter = RESET_COUNTER_START
 
     def onConfigChanged(self):
         print("config changed")
@@ -106,26 +132,52 @@ class Nightstand:
         if event.edge == NeoTrellis.EDGE_RISING:
             self.trellis.pixels[event.number] = self.config.getKeyConfig(
                 event.number).keyPressedColor
-            self.keyStates[event.number] = KEYSTATE_PRESSED
+            self.states.keyStates[event.number] = KEYSTATE_PRESSED
         # turn the LED off when a rising edge is detected
         elif event.edge == NeoTrellis.EDGE_FALLING:
             self.trellis.pixels[event.number] = self.config.getKeyConfig(
                 event.number).color
             self.onAudioKeyPressed(event.number)
-            self.keyStates[event.number] = KEYSTATE_NONE
+            self.states.keyStates[event.number] = KEYSTATE_NONE
 
     def onAudioKeyPressed(self, index):
-        if self.menuState == MENUSTATE_IDLE or self.menuState == MENUSTATE_PLAYING:
+        if self.states.menuState == MENUSTATE_IDLE or (self.states.menuState == MENUSTATE_PLAYING and not self.config.getKeyConfig(index).isPlayerButton()):
             print("start audio")
             self.playAudio(self.config.getMedia(index))
+        elif self.states.menuState == MENUSTATE_PLAYING:
+            keyConfig = self.config.getKeyConfig(index)
+            if keyConfig.isPlayerButton():
+                self.audioPlayerButtonClick(keyConfig.playerButton)
+
+    def audioPlayerButtonClick(self, button):
+        print("exec audio button ", button)
+        if not self.audioPlayer is None:
+            if button == KeyConfig.AUDIOBUTTON_PLAY_PAUSE:
+                if self.audioPlayer.is_playing():
+                    self.audioPlayer.pause()
+                else:
+                    self.audioPlayer.play()
+            elif button == KeyConfig.AUDIOBUTTON_STOP:
+                self.audioPlayer.stop()
+            elif button == KeyConfig.AUDIOBUTTON_VOLUMEUP:
+                vol = self.audioPlayer.audio_get_volume()+VOL_INCDEC
+                self.audioPlayer.audio_set_volume(vol)
+            elif button == KeyConfig.AUDIOBUTTON_VOLUMEDOWN:
+                vol = self.audioPlayer.audio_get_volume()-VOL_INCDEC
+                self.audioPlayer.audio_set_volume(vol)
+            elif button == KeyConfig.AUDIOBUTTON_NEXT:
+                self.audioPlayer.next_chapter()
+            elif button == KeyConfig.AUDIOBUTTON_PREV:
+                self.audioPlayer.previous_chapter()
 
     def playAudio(self, audio):
         if not self.audioPlayer is None:
             print("stopping current audio")
             self.audioPlayer.stop()
+            self.states.enterMenu(MENUSTATE_IDLE)
         if audio is None:
             return
-        self.menuState = MENUSTATE_PLAYING
+        self.states.enterMenu(MENUSTATE_PLAYING)
         print("start playing ", audio)
         self.audioPlayer = vlc.MediaPlayer(audio)
         self.audioPlayer.play()

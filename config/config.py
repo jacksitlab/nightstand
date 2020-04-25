@@ -66,3 +66,11 @@ class NightStandConfig(FileSystemEventHandler):
         if keyconfig.mediaId in media:
             return media[keyconfig.mediaId]
         return None
+
+    def isSleepEnabled(self):
+        sleep = self.data["sleep"]
+        return sleep["enabled"]
+
+    def getSleepTime(self):
+        sleep = self.data["sleep"]
+        return sleep["timer"]
