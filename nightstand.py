@@ -4,6 +4,7 @@ from board import SCL, SDA
 import busio
 from adafruit_neotrellis.neotrellis import NeoTrellis
 from config.config import NightStandConfig
+import vlc
 
 # some color definitions
 OFF = (0, 0, 0)
@@ -15,14 +16,23 @@ BLUE = (0, 0, 255)
 PURPLE = (180, 0, 255)
 
 CONFIGFILE = "config.json"
+INIT_DELAY = 0.05
+
+MENUSTATE_INIT = 0
+MENUSTATE_IDLE = 1
+MENUSTATE_PLAYING = 2
+MENUSTATE_SLEEPING = 3
 
 
 class Nightstand:
 
     def __init__(self):
         self.config = NightStandConfig(CONFIGFILE)
+        self.audioPlayer = None
+        self.menuState = MENUSTATE_INIT
 
     def init(self):
+        self.menuState = MENUSTATE_INIT
         self.config.load()
         self.config.registerFilechangedListener(self.onConfigChanged)
         # create the i2c object for the trellis
@@ -36,24 +46,26 @@ class Nightstand:
             self.trellis.activate_key(i, NeoTrellis.EDGE_FALLING)
             # set all keys to trigger the blink callback
             self.trellis.callbacks[i] = self.onKeyPressed
+        self.menuState = MENUSTATE_IDLE
 
-    def reset(self, startupSequence = True):
+    def reset(self, startupSequence=True):
+        self.menuState = MENUSTATE_INIT
         if startupSequence:
             for i in range(16):
                 self.trellis.pixels[i] = RED
-                time.sleep(0.1)
+                time.sleep(INIT_DELAY)
             for i in range(16):
                 self.trellis.pixels[i] = YELLOW
-                time.sleep(0.1)
+                time.sleep(INIT_DELAY)
             for i in range(16):
                 self.trellis.pixels[i] = GREEN
-                time.sleep(0.1)
+                time.sleep(INIT_DELAY)
             for i in range(16):
                 self.trellis.pixels[i] = OFF
-                time.sleep(0.1)
+                time.sleep(INIT_DELAY)
         for i in range(16):
             self.trellis.pixels[i] = self.config.getKeyConfig(i).color
-            time.sleep(0.1)
+        self.menuState = MENUSTATE_IDLE
 
     def onConfigChanged(self):
         print("config changed")
@@ -68,6 +80,23 @@ class Nightstand:
         elif event.edge == NeoTrellis.EDGE_FALLING:
             self.trellis.pixels[event.number] = self.config.getKeyConfig(
                 event.number).color
+            self.onAudioKeyPressed(event.number)
+
+    def onAudioKeyPressed(self, index):
+        if self.menuState == MENUSTATE_IDLE or self.menuState == MENUSTATE_PLAYING:
+            print("start audio")
+            self.playAudio(self.config.getMedia(index))
+
+    def playAudio(self, audio):
+        if not self.audioPlayer is None:
+            print("stopping current audio")
+            self.audioPlayer.stop()
+        if audio is None:
+            return
+        self.menuState = MENUSTATE_PLAYING
+        print("start playing ", audio)
+        self.audioPlayer = vlc.MediaPlayer(audio)
+        self.audioPlayer.play()
 
     def startServer(self):
         print('Hello from the Nightstand Service')

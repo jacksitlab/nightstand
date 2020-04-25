@@ -32,7 +32,12 @@ class NightStandConfig(FileSystemEventHandler):
 
     def onConfigChanged(self):
         print("config has changed")
-        self.load()
+        try:
+            self.load()
+        except:
+            print("error reloading config")
+            return
+
         for listener in self.changeListeners:
             listener()
 
@@ -54,3 +59,10 @@ class NightStandConfig(FileSystemEventHandler):
             return KeyConfig(keys[str(index)])
         else:
             return KeyConfig.Default()
+
+    def getMedia(self, index):
+        keyconfig = self.getKeyConfig(index)
+        media = self.data["media"]
+        if keyconfig.mediaId in media:
+            return media[keyconfig.mediaId]
+        return None

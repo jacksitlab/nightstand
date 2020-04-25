@@ -2,10 +2,17 @@
     "keys": {
         "0": {
             "color": "#00CCFF",
-            "pressed": "#00F000"
+            "pressed": "#00F000",
+            "media": "test"
+        },
+        "15": {
+            "color": "#800C00",
+            "pressed": "#000000",
+            "media": "stream1"
         }
     },
-    "speakers": [
-        "00:42:79:A7:6F:CE"
-    ]
+    "media": {
+        "test": "/home/pi/Digital_Presentation_48000.wav",
+        "stream1": "http://listen.181fm.com/181-eagle_128k.mp3?companionAds=true&aw_0_1st.playerid=esPlayer&aw_0_1st.skey=1579627174&aw_0_req.gdpr=true"
+    }
 }
