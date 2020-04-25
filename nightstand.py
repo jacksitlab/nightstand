@@ -4,6 +4,7 @@ from board import SCL, SDA
 import busio
 from adafruit_neotrellis.neotrellis import NeoTrellis
 from config.config import NightStandConfig
+from repeatedTimer import RepeatedTimer
 import vlc
 
 # some color definitions
@@ -17,11 +18,18 @@ PURPLE = (180, 0, 255)
 
 CONFIGFILE = "config.json"
 INIT_DELAY = 0.05
-
+TIMER_INTERVAL = 2
+TIME_TO_RESET = 10
+RESET_COUNTER_START = TIME_TO_RESET/TIMER_INTERVAL
 MENUSTATE_INIT = 0
 MENUSTATE_IDLE = 1
 MENUSTATE_PLAYING = 2
 MENUSTATE_SLEEPING = 3
+
+RESET_STATE_NONE = 0
+RESET_STATE_KEYPRESSED = 1
+KEYSTATE_NONE = 0
+KEYSTATE_PRESSED = 1
 
 
 class Nightstand:
@@ -30,6 +38,13 @@ class Nightstand:
         self.config = NightStandConfig(CONFIGFILE)
         self.audioPlayer = None
         self.menuState = MENUSTATE_INIT
+        self.resetState = RESET_STATE_NONE
+        self.resetCounter = RESET_COUNTER_START
+        self.keyStates = [KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE,
+                          KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE,
+                          KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE,
+                          KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE]
+        self.timer = RepeatedTimer(TIMER_INTERVAL, self.onTimerTick)
 
     def init(self):
         self.menuState = MENUSTATE_INIT
@@ -50,6 +65,8 @@ class Nightstand:
 
     def reset(self, startupSequence=True):
         self.menuState = MENUSTATE_INIT
+        self.resetCounter = RESET_COUNTER_START
+        self.playAudio(None)
         if startupSequence:
             for i in range(16):
                 self.trellis.pixels[i] = RED
@@ -67,6 +84,19 @@ class Nightstand:
             self.trellis.pixels[i] = self.config.getKeyConfig(i).color
         self.menuState = MENUSTATE_IDLE
 
+    def isResetCondition(self):
+        if self.keyStates[12] == KEYSTATE_PRESSED and self.keyStates[15] == KEYSTATE_PRESSED:
+            return True
+        return False
+
+    def onTimerTick(self):
+        if self.isResetCondition():
+            self.resetCounter -= 1
+            if self.resetCounter < 0:
+                self.reset()
+        else:
+            self.resetCounter = RESET_COUNTER_START
+
     def onConfigChanged(self):
         print("config changed")
         self.reset(False)
@@ -76,11 +106,13 @@ class Nightstand:
         if event.edge == NeoTrellis.EDGE_RISING:
             self.trellis.pixels[event.number] = self.config.getKeyConfig(
                 event.number).keyPressedColor
+            self.keyStates[event.number] = KEYSTATE_PRESSED
         # turn the LED off when a rising edge is detected
         elif event.edge == NeoTrellis.EDGE_FALLING:
             self.trellis.pixels[event.number] = self.config.getKeyConfig(
                 event.number).color
             self.onAudioKeyPressed(event.number)
+            self.keyStates[event.number] = KEYSTATE_NONE
 
     def onAudioKeyPressed(self, index):
         if self.menuState == MENUSTATE_IDLE or self.menuState == MENUSTATE_PLAYING:
@@ -100,15 +132,21 @@ class Nightstand:
 
     def startServer(self):
         print('Hello from the Nightstand Service')
-        while True:
-            # call the sync function call any triggered callbacks
-            self.trellis.sync()
-            # the trellis can only be read every 17 millisecons or so
-            time.sleep(0.02)
+        try:
+            while True:
+                # call the sync function call any triggered callbacks
+                self.trellis.sync()
+                # the trellis can only be read every 17 millisecons or so
+                time.sleep(0.02)
+        except:
+            self.config.stop()
+        self.config.join()
+        self.timer.stop()
 
     def startCLI(self):
         print('Hello from the Nightstand Server')
         self.reset()
+        self.timer.start()
         try:
             while True:
                 # call the sync function call any triggered callbacks
@@ -118,6 +156,7 @@ class Nightstand:
         except KeyboardInterrupt:
             self.config.stop()
         self.config.join()
+        self.timer.stop()
 
 
 if __name__ == '__main__':
