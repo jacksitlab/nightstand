@@ -74,3 +74,13 @@ class NightStandConfig(FileSystemEventHandler):
     def getSleepTime(self):
         sleep = self.data["sleep"]
         return sleep["timer"]
+
+    def enableSleep(self, enable):
+        print("set sleep to ", enable)
+        sleep = self.data["sleep"]
+        sleep["enabled"] = enable
+
+    def setSleepTime(self, time):
+        print("set sleep timer to ", time)
+        sleep = self.data["sleep"]
+        sleep["timer"] = time

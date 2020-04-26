@@ -16,16 +16,24 @@ GREEN = (0, 255, 0)
 CYAN = (0, 255, 255)
 BLUE = (0, 0, 255)
 PURPLE = (180, 0, 255)
+WHITE = (255, 255, 255)
 
 CONFIGFILE = "config.json"
 INIT_DELAY = 0.05
 TIMER_INTERVAL = 2
 TIME_TO_RESET = 10
+TIME_TO_SLEEPMENU = 5
+TIME_TO_SLEEPMENU_FALLBACK = 10
+
 RESET_COUNTER_START = TIME_TO_RESET/TIMER_INTERVAL
+SLEEPMENU_COUNTER_START = TIME_TO_SLEEPMENU/TIMER_INTERVAL
+SLEEPMENU_FALLBACK_COUNTER_START = TIME_TO_SLEEPMENU_FALLBACK/TIMER_INTERVAL
 MENUSTATE_INIT = 0
 MENUSTATE_IDLE = 1
 MENUSTATE_PLAYING = 2
-MENUSTATE_SLEEPING = 3
+MENUSTATE_SLEEPCONFIG = 3
+MENUSTATE_SLEEPING = 4
+
 
 RESET_STATE_NONE = 0
 RESET_STATE_KEYPRESSED = 1
@@ -45,13 +53,19 @@ class NightstandStates:
                           KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE,
                           KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE,
                           KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE, KEYSTATE_NONE]
-        self.sleepCounter = 0
+        self.sleepMenuCounter = SLEEPMENU_COUNTER_START
+        self.sleepConfigFallbackCounter = SLEEPMENU_FALLBACK_COUNTER_START
         self.sleepEnabled = False
+        self.menuStateChangeListeners = []
+        self.resetListeners = []
 
-    def enterMenu(self, state):
-        if state == self.menuState:
+    def enterMenu(self, state, force=False):
+        if state == self.menuState and not force:
             return
+        old = self.menuState
         self.menuState = state
+        for listener in self.menuStateChangeListeners:
+            listener(old, state)
 
     def isSleepCondition(self):
         if self.menuState == MENUSTATE_SLEEPING:
@@ -61,10 +75,55 @@ class NightstandStates:
             return True
         return False
 
+    def isSleepMenuKeyCondition(self):
+        if self.keyStates[13] == KEYSTATE_PRESSED and self.keyStates[14] == KEYSTATE_PRESSED:
+            return True
+        return False
+
     def isResetKeyCondition(self):
         if self.keyStates[12] == KEYSTATE_PRESSED and self.keyStates[15] == KEYSTATE_PRESSED:
             return True
         return False
+
+    def registerMenuStateChangeListener(self, listener):
+        self.menuStateChangeListeners.append(listener)
+
+    def unregisterMenuStateChangeListener(self, listener):
+        self.menuStateChangeListeners.remove(listener)
+
+    def registerResetListener(self, listener):
+        self.resetListeners.append(listener)
+
+    def unregisterResetListener(self, listener):
+        self.resetListeners.remove(listener)
+
+    def onResetTimerTick(self):
+        if self.isResetKeyCondition():
+            self.resetCounter -= 1
+            if self.resetCounter < 0:
+                self.pushReset()
+        else:
+            self.resetCounter = RESET_COUNTER_START
+
+    def onSleepTimerTick(self):
+        if self.menuState == MENUSTATE_SLEEPCONFIG:
+            self.sleepConfigFallbackCounter -= 1
+            if self.sleepConfigFallbackCounter < 0:
+                self.enterMenu(MENUSTATE_IDLE)
+        else:
+            if self.isSleepMenuKeyCondition():
+                self.sleepMenuCounter -= 1
+                if self.sleepMenuCounter < 0:
+                    self.enterMenu(MENUSTATE_SLEEPCONFIG)
+            else:
+                self.sleepMenuCounter = SLEEPMENU_COUNTER_START
+
+    def pushReset(self):
+        for listener in self.resetListeners:
+            listener()
+
+    def stayinSleepConfig(self):
+        self.sleepConfigFallbackCounter = SLEEPMENU_FALLBACK_COUNTER_START
 
 
 class Nightstand:
@@ -73,6 +132,8 @@ class Nightstand:
         self.config = NightStandConfig(CONFIGFILE)
         self.audioPlayer = None
         self.states = NightstandStates()
+        self.states.registerMenuStateChangeListener(self.onMenuChanged)
+        self.states.registerResetListener(self.reset)
         self.timer = RepeatedTimer(TIMER_INTERVAL, self.onTimerTick)
 
     def init(self):
@@ -93,6 +154,15 @@ class Nightstand:
             self.trellis.callbacks[i] = self.onKeyPressed
         self.states.enterMenu(MENUSTATE_IDLE)
 
+    def onMenuChanged(self, oldMenuState, newMenuState):
+        print("menu changed from "+str(oldMenuState) + " to " + str(newMenuState))
+        if oldMenuState == MENUSTATE_SLEEPCONFIG:
+            self.states.enterMenu(
+                MENUSTATE_PLAYING if self.audioPlayer is not None else MENUSTATE_IDLE, True)
+            return
+
+        self.initColors()
+
     def reset(self, startupSequence=True, stopAudio=False):
         self.states.enterMenu(MENUSTATE_INIT)
         self.states.resetCounter = RESET_COUNTER_START
@@ -111,17 +181,32 @@ class Nightstand:
             for i in range(16):
                 self.trellis.pixels[i] = OFF
                 time.sleep(INIT_DELAY)
-        for i in range(16):
-            self.trellis.pixels[i] = self.config.getKeyConfig(i).color
+        self.initColors()
         self.states.enterMenu(MENUSTATE_IDLE)
 
-    def onTimerTick(self):
-        if self.states.isResetKeyCondition():
-            self.states.resetCounter -= 1
-            if self.states.resetCounter < 0:
-                self.reset()
+    def initColors(self):
+        if self.states.menuState == MENUSTATE_SLEEPCONFIG:
+            time = self.config.getSleepTime()
+            for i in range(12):
+                self.trellis.pixels[i] = YELLOW if time > i*300 else OFF
+            self.trellis.pixels[12] = WHITE  # decrease sleep
+            self.trellis.pixels[13] = GREEN if self.config.isSleepEnabled(
+            ) else RED
+            self.trellis.pixels[14] = GREEN if self.config.isSleepEnabled(
+            ) else RED
+            self.trellis.pixels[15] = WHITE  # increase sleep
+
         else:
-            self.states.resetCounter = RESET_COUNTER_START
+            for i in range(16):
+                kc = self.config.getKeyConfig(i)
+                if not kc.isPlayerButton() or self.states.menuState == MENUSTATE_PLAYING:
+                    self.trellis.pixels[i] = kc.color
+                else:
+                    self.trellis.pixels[i] = OFF
+
+    def onTimerTick(self):
+        self.states.onResetTimerTick()
+        self.states.onSleepTimerTick()
 
     def onConfigChanged(self):
         print("config changed")
@@ -135,10 +220,34 @@ class Nightstand:
             self.states.keyStates[event.number] = KEYSTATE_PRESSED
         # turn the LED off when a rising edge is detected
         elif event.edge == NeoTrellis.EDGE_FALLING:
-            self.trellis.pixels[event.number] = self.config.getKeyConfig(
-                event.number).color
-            self.onAudioKeyPressed(event.number)
+            kc = self.config.getKeyConfig(event.number)
+            if not kc.isPlayerButton() or self.states.menuState == MENUSTATE_PLAYING:
+                self.trellis.pixels[event.number] = kc.color
+            else:
+                self.trellis.pixels[event.number] = OFF
+            if self.states.menuState == MENUSTATE_SLEEPCONFIG:
+                self.onSleepConfigKeyPressed(event.number)
+            else:
+                self.onAudioKeyPressed(event.number)
             self.states.keyStates[event.number] = KEYSTATE_NONE
+
+    def onSleepConfigKeyPressed(self, index):
+        curSleep = self.config.getSleepTime()
+        incdec = 300
+        if index == 12:
+            self.config.setSleepTime(
+                curSleep-incdec if curSleep > incdec else 0)
+            if self.config.getSleepTime() == 0:
+                self.config.enableSleep(False)
+        if index == 15:
+            self.config.setSleepTime(
+                curSleep+incdec if curSleep < 11*incdec else 12*incdec)
+            if curSleep == 0:
+                self.config.enableSleep(True)
+        if index == 13 or index == 14:
+            self.config.enableSleep(not self.config.isSleepEnabled())
+        self.states.stayinSleepConfig()
+        self.initColors()
 
     def onAudioKeyPressed(self, index):
         if self.states.menuState == MENUSTATE_IDLE or (self.states.menuState == MENUSTATE_PLAYING and not self.config.getKeyConfig(index).isPlayerButton()):
@@ -158,7 +267,7 @@ class Nightstand:
                 else:
                     self.audioPlayer.play()
             elif button == KeyConfig.AUDIOBUTTON_STOP:
-                self.audioPlayer.stop()
+                self.playAudio(None)
             elif button == KeyConfig.AUDIOBUTTON_VOLUMEUP:
                 vol = self.audioPlayer.audio_get_volume()+VOL_INCDEC
                 self.audioPlayer.audio_set_volume(vol)
@@ -192,8 +301,7 @@ class Nightstand:
                 time.sleep(0.02)
         except:
             self.config.stop()
-        self.config.join()
-        self.timer.stop()
+        self.stop()
 
     def startCLI(self):
         print('Hello from the Nightstand Server')
@@ -207,8 +315,12 @@ class Nightstand:
                 time.sleep(0.02)
         except KeyboardInterrupt:
             self.config.stop()
+        self.stop()
+
+    def stop(self):
         self.config.join()
         self.timer.stop()
+        self.states.unregisterMenuStateChangeListener(self.onMenuChanged)
 
 
 if __name__ == '__main__':

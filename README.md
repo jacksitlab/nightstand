@@ -48,6 +48,18 @@ The config file ```config.json``` contains:
 
   * ```keys```: KeyConfigs with color definitions and connected mediaId (ref for media section)
   * ```media```: Key-Value-Pairs of media files, urls or even playlists
+  * ```sleep```: settings for sleep mode
+
+KeyConfig:
+
+```
+{
+    "color":"#AA0000",
+    "pressed":"#FF0000",
+    "media":"",
+    "player":"PLAY|STOP|PREV|NEXT|VOL+|VOL-"
+}
+```
 
 ## Dev Environment
 

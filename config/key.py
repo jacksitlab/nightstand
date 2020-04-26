@@ -13,8 +13,12 @@ class KeyConfig:
 
     def __init__(self, keydata):
         self.color = self.colorFromHexCode(keydata["color"])
-        self.keyPressedColor = self.colorFromHexCode(keydata["pressed"])
-        self.mediaId = keydata["media"]
+        self.keyPressedColor = self.color
+        if "pressed" in keydata:
+            self.keyPressedColor = self.colorFromHexCode(keydata["pressed"])
+        self.mediaId = ""
+        if "media" in keydata:
+            self.mediaId = keydata["media"]
         self.playerButton = None
         if "player" in keydata:
             self.playerButton = keydata["player"]
