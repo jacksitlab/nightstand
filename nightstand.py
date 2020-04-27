@@ -6,6 +6,7 @@ from adafruit_neotrellis.neotrellis import NeoTrellis
 from config.config import NightStandConfig
 from repeatedTimer import RepeatedTimer
 from config.key import KeyConfig
+from btctl import BluetoothCtl
 import vlc
 
 # some color definitions
@@ -152,6 +153,7 @@ class Nightstand:
         self.config = NightStandConfig(CONFIGFILE)
         self.audioPlayer = None
         self.states = NightstandStates()
+        self.btctl = None
         self.states.registerMenuStateChangeListener(self.onMenuChanged)
         self.states.registerResetListener(self.reset)
         self.timer = RepeatedTimer(TIMER_INTERVAL, self.onTimerTick)
@@ -161,6 +163,7 @@ class Nightstand:
         self.config.load()
         self.states.sleepEnabled = self.config.isSleepEnabled()
         self.config.registerFilechangedListener(self.onConfigChanged)
+        self.btctl = BluetoothCtl(self.config.getBluetoothMacs())
         # create the i2c object for the trellis
         i2c_bus = busio.I2C(SCL, SDA)
         # create the trellis
@@ -186,6 +189,7 @@ class Nightstand:
     def reset(self, startupSequence=True, stopAudio=False):
         self.states.enterMenu(MENUSTATE_INIT)
         self.states.resetCounter = RESET_COUNTER_START
+        self.btctl = BluetoothCtl(self.config.getBluetoothMacs())
         if stopAudio:
             self.playAudio(None)
         if startupSequence:

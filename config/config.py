@@ -67,6 +67,14 @@ class NightStandConfig(FileSystemEventHandler):
             return media[keyconfig.mediaId]
         return None
 
+    def getBluetoothMacs(self):
+        bt = self.data["bluetooth"] if "bluetooth" in self.data else None
+        return [] if bt is None else bt["devices"]
+
+    def doBluetoothAutoConnect(self):
+        bt = self.data["bluetooth"] if "bluetooth" in self.data else None
+        return False if bt is None else bt["autoconnect"]
+
     def isSleepEnabled(self):
         sleep = self.data["sleep"]
         return sleep["enabled"]
