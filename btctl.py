@@ -1,6 +1,9 @@
 import sys
 import re
 import subprocess
+import time
+
+DELAY = 5
 
 
 class BluetoothCtl:
@@ -9,30 +12,69 @@ class BluetoothCtl:
         self.exec = executable
         self.deviceMacs = deviceMacs
 
+    def doConnect(self, retries, onSuccess, onFailed):
+        if self.isConnected():
+            onSuccess()
+            return
+        for i in range(retries):
+            res = True
+            for mac in self.deviceMacs:
+                cr = self.connect(mac)
+                res = res and cr
+            if res:
+                onSuccess()
+                return
+            time.sleep(DELAY)
+
+        onFailed()
+
+    def doDisconnect(self):
+        self.disconnect()
+
     def execCommand(self, cmd):
         p = subprocess.Popen(
             [self.exec]+cmd, stdout=subprocess.PIPE, text=True)
         p.wait()
         return ExecData(p.stdout.readlines(), p.returncode)
 
-    def pair(self, mac):
-        response = self.execCommand(["pair", mac])
-        return response.succeeded()
+    def pair(self, deviceMac=None):
+        if deviceMac is not None:
+            return self.execCommand(["pair", deviceMac]).succeeded()
+        else:
+            success = True
+            for mac in self.deviceMacs:
+                success = success and self.pair(mac)
+            return success
 
-    def trust(self):
-        response = self.execCommand(["trust", mac])
-        return response.succeeded()
+    def trust(self, deviceMac=None):
+        if deviceMac is not None:
+            return self.execCommand(["trust", deviceMac]).succeeded()
+        else:
+            success = True
+            for mac in self.deviceMacs:
+                success = success and self.trust(mac)
+            return success
 
-    def connect(self):
-        response = self.execCommand(["connect", mac])
-        return response.succeeded()
+    def connect(self, deviceMac=None):
+        if deviceMac is not None:
+            return self.execCommand(["connect", deviceMac]).succeeded()
+        else:
+            success = True
+            for mac in self.deviceMacs:
+                success = success and self.connect(mac)
+            return success
 
-    def disconnect(self):
-        response = self.execCommand(["disconnect", mac])
-        return response.succeeded()
+    def disconnect(self, deviceMac=None):
+        if deviceMac is not None:
+            return self.execCommand(["disconnect", deviceMac]).succeeded()
+        else:
+            success = True
+            for mac in self.deviceMacs:
+                success = success and self.disconnect(mac)
+            return success
 
-    def info(self, mac):
-        response = self.execCommand(["info", mac])
+    def info(self, deviceMac):
+        response = self.execCommand(["info", deviceMac])
         if not response.succeeded():
             return None
         return BluetoothCtlInfo(response.output)
@@ -41,8 +83,8 @@ class BluetoothCtl:
         if deviceMac is not None:
             return self.info(deviceMac).isConnected()
         else:
-            for macs in self.deviceMacs:
-                c = self.info(macs).isConnected()
+            for mac in self.deviceMacs:
+                c = self.info(mac).isConnected()
                 if not c:
                     return False
             return True

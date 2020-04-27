@@ -38,6 +38,8 @@ MENUSTATE_PLAYING = 2
 MENUSTATE_SLEEPCONFIG = 3
 MENUSTATE_SLEEPING = 4
 MENUSTATE_DIMMING = 5
+MENUSTATE_CONNECTING = 6
+MENUSTATE_ERROR = 7
 
 RESET_STATE_NONE = 0
 RESET_STATE_KEYPRESSED = 1
@@ -45,6 +47,7 @@ KEYSTATE_NONE = 0
 KEYSTATE_PRESSED = 1
 # increase/decrease for VOL+/VOL- Button
 VOL_INCDEC = 5
+BTCONNECT_RETRIES = 5
 
 
 class NightstandStates:
@@ -175,7 +178,21 @@ class Nightstand:
             self.trellis.activate_key(i, NeoTrellis.EDGE_FALLING)
             # set all keys to trigger the blink callback
             self.trellis.callbacks[i] = self.onKeyPressed
+
+    def doConnect(self):
+        self.btctl.doConnect(BTCONNECT_RETRIES, self.onConnectFinished,
+                             self.onConnectFailed)
+
+    def doDisconnect(self):
+        self.btctl.doDisconnect()
+
+    def onConnectFinished(self):
+        print("bt connections established")
         self.states.enterMenu(MENUSTATE_IDLE)
+
+    def onConnectFailed(self):
+        print("failed to connect to bt devices")
+        self.states.enterMenu(MENUSTATE_ERROR)
 
     def onMenuChanged(self, oldMenuState, newMenuState):
         print("menu changed from "+str(oldMenuState) + " to " + str(newMenuState))
@@ -206,7 +223,11 @@ class Nightstand:
                 self.trellis.pixels[i] = OFF
                 time.sleep(INIT_DELAY)
         self.initColors()
-        self.states.enterMenu(MENUSTATE_IDLE)
+        if self.config.doBluetoothAutoConnect():
+            self.states.enterMenu(MENUSTATE_CONNECTING)
+            self.doConnect()
+        else:
+            self.states.enterMenu(MENUSTATE_IDLE)
 
     def getKeyColor(self, index):
         if self.states.menuState == MENUSTATE_SLEEPCONFIG:
@@ -356,6 +377,7 @@ class Nightstand:
     def stop(self):
         self.config.join()
         self.timer.stop()
+        self.doDisconnect()
         self.states.unregisterMenuStateChangeListener(self.onMenuChanged)
 
 
@@ -363,10 +385,9 @@ if __name__ == '__main__':
     import time
     import systemd.daemon
 
-    ds = Nightstand()
     print('Starting up ...')
+    ds = Nightstand()
     ds.init()
-    print('Startup complete')
     if len(sys.argv) <= 1:
         ds.startServer()
     else:
