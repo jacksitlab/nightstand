@@ -4,6 +4,14 @@ A python project for Raspberry Pi to control some audio files for falling asleep
 
 For audio playback vlc-player will be used and remote controlled with python.
 
+## Feature Overview
+
+  * play preconfigured music (single file, stream, playlist) for every key
+  * auto connect/disconnect to bluetooth speaker(s)
+  * sleep timer up to 1 hour
+  * individual play/pause, next, prev, vol+, vol- buttons
+  * configure each key with individual color
+
 ## Installation
 
   * just run ```preinstall.sh``` to get everything needed installed.
@@ -70,7 +78,6 @@ To test it just run it in foreground with ```python3 nightstand.py --foreground`
 
   * REST-API to write configuration
   * SMB mount feature to support local NAS
-  * 
 
 ## License
 
