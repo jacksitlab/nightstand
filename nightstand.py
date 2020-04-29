@@ -40,6 +40,7 @@ MENUSTATE_SLEEPING = 4
 MENUSTATE_DIMMING = 5
 MENUSTATE_CONNECTING = 6
 MENUSTATE_ERROR = 7
+MENUSTATE_STOPPED = 8
 
 RESET_STATE_NONE = 0
 RESET_STATE_KEYPRESSED = 1
@@ -180,8 +181,8 @@ class Nightstand:
             self.trellis.callbacks[i] = self.onKeyPressed
 
     def doConnect(self):
-        self.btctl.doConnect(BTCONNECT_RETRIES, self.onConnectFinished,
-                             self.onConnectFailed)
+        self.btctl.doConnectAsync(BTCONNECT_RETRIES, self.onConnectFinished,
+                                  self.onConnectFailed)
 
     def doDisconnect(self):
         self.btctl.doDisconnect()
@@ -242,7 +243,7 @@ class Nightstand:
                 return GREEN if self.config.isSleepEnabled() else RED
             elif index == 15:
                 return WHITE
-        elif self.states.menuState == MENUSTATE_DIMMING:
+        elif self.states.menuState == MENUSTATE_DIMMING or self.states.menuState == MENUSTATE_STOPPED:
             return OFF
         else:
             kc = self.config.getKeyConfig(index)
@@ -377,6 +378,7 @@ class Nightstand:
     def stop(self):
         self.config.join()
         self.timer.stop()
+        self.states.enterMenu(MENUSTATE_STOPPED)
         self.doDisconnect()
         self.states.unregisterMenuStateChangeListener(self.onMenuChanged)
 

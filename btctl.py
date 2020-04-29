@@ -2,6 +2,7 @@ import sys
 import re
 import subprocess
 import time
+import threading
 
 DELAY = 5
 
@@ -11,24 +12,42 @@ class BluetoothCtl:
     def __init__(self, deviceMacs, executable="bluetoothctl"):
         self.exec = executable
         self.deviceMacs = deviceMacs
+        self.cancelConnect = False
+        self.connectIsRunning = False
+
+    def doConnectAsync(self, retries, onSuccess, onFailed):
+        threading.Thread(target=self.doConnect, args=(
+            retries, onSuccess, onFailed))
 
     def doConnect(self, retries, onSuccess, onFailed):
+        self.cancelConnect = False
         if self.isConnected():
             onSuccess()
             return
+        self.connectIsRunning = True
         for i in range(retries):
             res = True
             for mac in self.deviceMacs:
+                if self.cancelConnect:
+                    break
                 cr = self.connect(mac)
                 res = res and cr
             if res:
                 onSuccess()
+                self.connectIsRunning = False
                 return
             time.sleep(DELAY)
 
         onFailed()
+        self.connectIsRunning = False
 
     def doDisconnect(self):
+        if self.connectIsRunning:
+            self.cancelConnect = True
+            i = 4
+            while self.connectIsRunning and i > 0:
+                time.sleep(1)
+                i -= 1
         self.disconnect()
 
     def execCommand(self, cmd):
