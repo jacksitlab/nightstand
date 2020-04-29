@@ -66,8 +66,10 @@ class NightstandStates:
         self.sleepConfigFallbackCounter = SLEEPMENU_FALLBACK_COUNTER_START
         self.dimmingCounter = DIMMINGCOUNTER_START
         self.sleepEnabled = False
+        self.sleepCounter = -1
         self.menuStateChangeListeners = []
         self.resetListeners = []
+        self.sleepListeners = []
 
     def enterMenu(self, state, force=False):
         if state == self.menuState and not force:
@@ -80,6 +82,7 @@ class NightstandStates:
     def menuBack(self):
         old = self.menuState
         self.menuState = self.menuStateOld
+        self.menuStateOld = old
         for listener in self.menuStateChangeListeners:
             listener(self.menuStateOld, self.menuState)
 
@@ -101,6 +104,10 @@ class NightstandStates:
             return True
         return False
 
+    def setSleepConfig(self, enabled, timeInSeconds):
+        self.sleepEnabled = enabled
+        self.sleepCounter = timeInSeconds/TIMER_INTERVAL
+
     def registerMenuStateChangeListener(self, listener):
         self.menuStateChangeListeners.append(listener)
 
@@ -112,6 +119,12 @@ class NightstandStates:
 
     def unregisterResetListener(self, listener):
         self.resetListeners.remove(listener)
+
+    def registerSleepListener(self, listener):
+        self.sleepListeners.append(listener)
+
+    def unregisterSleepListener(self, listener):
+        self.sleepListeners.remove(listener)
 
     def onResetTimerTick(self):
         if self.isResetKeyCondition():
@@ -134,14 +147,25 @@ class NightstandStates:
             else:
                 self.sleepMenuCounter = SLEEPMENU_COUNTER_START
 
+        if self.sleepEnabled:
+            if self.sleepCounter > 0:
+                self.sleepCounter -= 1
+#                print(str(self.sleepCounter) + " counts to sleep")
+                if self.sleepCounter == 0:
+                    self.pushSleep()
+
     def onDimmingTimerTick(self):
         if self.dimmingCounter > 0:
             self.dimmingCounter -= 1
-        if self.dimmingCounter <= 0:
-            self.enterMenu(MENUSTATE_DIMMING)
+            if self.dimmingCounter <= 0:
+                self.enterMenu(MENUSTATE_DIMMING)
 
     def pushReset(self):
         for listener in self.resetListeners:
+            listener()
+
+    def pushSleep(self):
+        for listener in self.sleepListeners:
             listener()
 
     def resetDimmingTimer(self):
@@ -160,6 +184,7 @@ class Nightstand:
         self.btctl = None
         self.states.registerMenuStateChangeListener(self.onMenuChanged)
         self.states.registerResetListener(self.reset)
+        self.states.registerSleepListener(self.onGoToSleep)
         self.timer = RepeatedTimer(TIMER_INTERVAL, self.onTimerTick)
 
     def init(self):
@@ -167,6 +192,7 @@ class Nightstand:
         self.config.load()
         self.states.sleepEnabled = self.config.isSleepEnabled()
         self.config.registerFilechangedListener(self.onConfigChanged)
+
         self.btctl = BluetoothCtl(self.config.getBluetoothMacs())
         # create the i2c object for the trellis
         i2c_bus = busio.I2C(SCL, SDA)
@@ -198,6 +224,8 @@ class Nightstand:
     def onMenuChanged(self, oldMenuState, newMenuState):
         print("menu changed from "+str(oldMenuState) + " to " + str(newMenuState))
         if oldMenuState == MENUSTATE_SLEEPCONFIG:
+            self.states.setSleepConfig(
+                self.config.isSleepEnabled(), self.config.getSleepTime())
             self.states.enterMenu(
                 MENUSTATE_PLAYING if self.audioPlayer is not None else MENUSTATE_IDLE, True)
             return
@@ -230,6 +258,11 @@ class Nightstand:
         else:
             self.states.enterMenu(MENUSTATE_IDLE)
 
+    def onGoToSleep(self):
+        self.enterMenu(MENUSTATE_SLEEPING)
+        self.playAudio(None)
+        self.doDisconnect()
+
     def getKeyColor(self, index):
         if self.states.menuState == MENUSTATE_SLEEPCONFIG:
             time = self.config.getSleepTime()
@@ -243,7 +276,7 @@ class Nightstand:
                 return GREEN if self.config.isSleepEnabled() else RED
             elif index == 15:
                 return WHITE
-        elif self.states.menuState == MENUSTATE_DIMMING or self.states.menuState == MENUSTATE_STOPPED:
+        elif self.states.menuState == MENUSTATE_DIMMING or self.states.menuState == MENUSTATE_STOPPED or self.states.menuState == MENUSTATE_SLEEPING:
             return OFF
         else:
             kc = self.config.getKeyConfig(index)

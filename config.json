@@ -51,6 +51,6 @@
     },
     "sleep": {
         "enabled": false,
-        "timer": 30
+        "timer": 1800
     }
 }
